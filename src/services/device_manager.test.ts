@@ -5,6 +5,11 @@ import { DeviceManager } from "./device_manager";
 
 describe("DeviceManager", () => {
   const log = getLoggerMock();
+  beforeEach(() => jest.useFakeTimers({ doNotFake: ["nextTick"] }));
+  afterEach(() => {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
 
   describe("constructor", () => {
     test("Fails if no IP provided", () => {
@@ -40,9 +45,15 @@ describe("DeviceManager", () => {
         token: "token",
       });
       expect(deviceManager.model).toStrictEqual("unknown model");
-      expect(() => deviceManager.state).toThrow("Not connected yet");
-      expect(() => deviceManager.isCleaning).toThrow("Not connected yet");
-      expect(() => deviceManager.isPaused).toThrow("Not connected yet");
+      expect(() => deviceManager.state).toThrow(
+        createHomebridgeMock().hap.HapStatusError
+      );
+      expect(() => deviceManager.isCleaning).toThrow(
+        createHomebridgeMock().hap.HapStatusError
+      );
+      expect(() => deviceManager.isPaused).toThrow(
+        createHomebridgeMock().hap.HapStatusError
+      );
     });
 
     test("connects and loads", async () => {

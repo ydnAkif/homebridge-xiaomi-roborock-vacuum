@@ -1,7 +1,12 @@
 // ============= MIIO MOCKS ================
 
 import { API } from "homebridge";
-import { Characteristic, HAPStorage } from "hap-nodejs";
+import {
+  Characteristic,
+  HAPStorage,
+  HapStatusError,
+  HAPStatus,
+} from "hap-nodejs";
 import { Socket } from "net";
 import { MiioDevice } from "./utils/miio_types";
 
@@ -86,5 +91,13 @@ const Service = Object.assign(createServiceMock(), {
 export const createHomebridgeMock = () =>
   ({
     registerAccessory: jest.fn(),
-    hap: { Characteristic, Service, HAPStorage },
+    hap: {
+      Characteristic,
+      Service,
+      HAPStorage,
+      HapStatusError,
+      HAPStatus: {
+        SERVICE_COMMUNICATION_FAILURE: HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+      },
+    },
   }) as unknown as jest.Mocked<API>;

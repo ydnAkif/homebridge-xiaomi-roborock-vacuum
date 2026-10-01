@@ -1,4 +1,4 @@
-import { HAP } from "homebridge";
+import { HAP, API } from "homebridge";
 import {
   BehaviorSubject,
   distinct,
@@ -6,6 +6,7 @@ import {
   filter,
   Subject,
   timer,
+  Subscription,
 } from "rxjs";
 import miio from "../miio";
 import { Logger } from "../utils/logger";
@@ -28,115 +29,123 @@ export interface StateChangedEvent {
 }
 
 const GET_STATE_INTERVAL_MS = 30000; // 30s
-
 export class DeviceManager {
-  private readonly internalDevice$ = new BehaviorSubject<
-    MiioDevice | undefined
-  >(undefined);
-
+  private internalDevice$ = new BehaviorSubject<MiioDevice | undefined>(
+    undefined
+  );
   private readonly ip: string;
   private readonly token: string;
-
-  private readonly internalErrorChanged$ = new Subject<ErrorChangedEvent>();
-  private readonly internalStateChanged$ = new Subject<StateChangedEvent>();
-  public readonly errorChanged$ = this.internalErrorChanged$.pipe(distinct());
-  public readonly stateChanged$ = this.internalStateChanged$.asObservable();
-  public readonly deviceConnected$ = this.internalDevice$.pipe(filter(Boolean));
-
+  private internalErrorChanged$ = new Subject<ErrorChangedEvent>();
+  private internalStateChanged$ = new Subject<StateChangedEvent>();
+  errorChanged$ = this.internalErrorChanged$.pipe(distinct());
+  stateChanged$ = this.internalStateChanged$.asObservable();
+  deviceConnected$ = this.internalDevice$.pipe(filter(Boolean));
   private connectingPromise: Promise<void> | null = null;
+  private nextConnectAt = 0;
+  private connectionFailures = 0;
+  private connectionWarningLogged = false;
+  private stateSubscription: Subscription | null = null;
+  private stopped = false;
   private connectRetry = setTimeout(() => void 0, 100); // Noop timeout only to initialise the property
   constructor(
     private readonly hap: HAP,
     private readonly log: Logger,
-    config: DeviceManagerConfig
+    config: DeviceManagerConfig,
+    api?: API
   ) {
     if (!config.ip) {
       throw new Error("You must provide an ip address of the vacuum cleaner.");
     }
     this.ip = config.ip;
-
     if (!config.token) {
       throw new Error("You must provide a token of the vacuum cleaner.");
     }
     this.token = config.token;
-
+    api?.on("shutdown", () => this.dispose());
     this.connect().catch(() => {
       // Do nothing in the catch because this function already logs the error internally and retries after 2 minutes.
     });
   }
-
-  public get model() {
+  get model() {
     return this.internalDevice$.value?.miioModel || "unknown model";
   }
-
-  public get state() {
-    return this.property("state") as string;
+  get state() {
+    return this.property<string>("state") as string;
   }
-
-  public get isCleaning() {
+  get isCleaning() {
     return cleaningStatuses.includes(this.state);
   }
-
-  public get isPaused() {
+  get isPaused() {
     return this.state === "paused";
   }
-
-  public get device() {
+  get device() {
     if (!this.internalDevice$.value) {
-      throw new Error("Not connected yet");
+      throw this.communicationError();
     }
     return this.internalDevice$.value;
   }
-
-  public property<T>(propertyName: string) {
+  property<T>(propertyName: string) {
     return this.device.property<T>(propertyName);
   }
-
-  public async ensureDevice(callingMethod: string) {
+  async ensureDevice(callingMethod: string) {
+    if (this.stopped) throw this.communicationError();
+    if (this.internalDevice$.value) {
+      try {
+        if (this.internalDevice$.value.handle.api.parent.socket) return;
+      } catch (_) {
+        /* Reconnect a destroyed socket. */
+      }
+      this.releaseDevice();
+    }
+    await this.connect();
+    if (!this.internalDevice$.value) throw this.communicationError();
+  }
+  private communicationError() {
+    return new this.hap.HapStatusError(
+      this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
+    );
+  }
+  private releaseDevice() {
+    this.stateSubscription?.unsubscribe();
+    this.stateSubscription = null;
+    const device = this.internalDevice$.value;
+    this.internalDevice$.next(undefined);
     try {
-      if (!this.internalDevice$.value) {
-        const errMsg = `${callingMethod} | No vacuum cleaner is discovered yet.`;
-        this.log.error(errMsg);
-        throw new Error(errMsg);
-      }
-
-      // checking if the device has an open socket it will fail retrieving it if not
-      // https://github.com/aholstenson/miio/blob/master/lib/network.js#L227
-      const socket = this.internalDevice$.value.handle.api.parent.socket;
-      this.log.debug(
-        `DEB ensureDevice | ${this.model} | The socket is still on. Reusing it.`
-      );
-    } catch (error) {
-      const err = error as Error;
-      if (
-        /destroyed/i.test(err.message) ||
-        /No vacuum cleaner is discovered yet/.test(err.message)
-      ) {
-        this.log.info(
-          `INF ensureDevice | ${this.model} | The socket was destroyed or not initialised, initialising the device`
-        );
-        await this.connect();
-      } else {
-        this.log.error(err.message, err);
-        throw err;
-      }
+      device?.destroy();
+    } catch (_) {
+      /* Already closed. */
     }
   }
-
+  dispose() {
+    this.stopped = true;
+    clearTimeout(this.connectRetry);
+    this.releaseDevice();
+  }
   private async connect() {
+    if (this.stopped || Date.now() < this.nextConnectAt)
+      throw this.communicationError();
     if (this.connectingPromise === null) {
       // if already trying to connect, don't trigger yet another one
       this.connectingPromise = this.initializeDevice().catch((error) => {
-        this.log.error(
-          `ERR connect | miio.device, next try in 2 minutes | ${error}`
+        const delay = Math.min(
+          120000,
+          30000 * 2 ** Math.min(this.connectionFailures++, 2)
         );
+        this.nextConnectAt = Date.now() + delay;
+        if (!this.connectionWarningLogged) {
+          this.log.warn(
+            `Vacuum unavailable; reconnecting automatically with backoff: ${error.message}`
+          );
+          this.connectionWarningLogged = true;
+        }
         clearTimeout(this.connectRetry);
         // Using setTimeout instead of holding the promise. This way we'll keep retrying but not holding the other actions
-        this.connectRetry = setTimeout(
-          () => this.connect().catch(() => {}),
-          120000
-        );
-        throw error;
+        if (!this.stopped)
+          this.connectRetry = setTimeout(
+            () => this.connect().catch(() => {}),
+            delay
+          );
+        throw this.communicationError();
       });
     }
     try {
@@ -146,17 +155,20 @@ export class DeviceManager {
       this.connectingPromise = null;
     }
   }
-
   private async initializeDevice() {
     this.log.debug("DEB getDevice | Discovering vacuum cleaner");
-
     const device = await miio.device({ address: this.ip, token: this.token });
-
+    if (this.stopped) {
+      device.destroy();
+      throw this.communicationError();
+    }
     if (device.matches("type:vaccuum")) {
+      this.releaseDevice();
       this.internalDevice$.next(device);
-
+      this.nextConnectAt = 0;
+      this.connectionFailures = 0;
+      this.connectionWarningLogged = false;
       this.log.setModel(this.model);
-
       this.log.info("STA getDevice | Connected to: %s", this.ip);
       this.log.info("STA getDevice | Model: " + this.model);
       this.log.info("STA getDevice | State: " + this.property("state"));
@@ -164,16 +176,19 @@ export class DeviceManager {
       this.log.info(
         "STA getDevice | BatteryLevel: " + this.property("batteryLevel")
       );
-
       this.device.on<ErrorChangedEvent>("errorChanged", (error) =>
         this.internalErrorChanged$.next(error)
       );
       this.device.on<StateChangedEvent>("stateChanged", (state) =>
         this.internalStateChanged$.next(state)
       );
-
       // Refresh the state every 30s so miio maintains a fresh connection (or recovers connection if lost until we fix https://github.com/homebridge-xiaomi-roborock-vacuum/homebridge-xiaomi-roborock-vacuum/issues/81)
-      timer(0, GET_STATE_INTERVAL_MS).pipe(exhaustMap(() => this.getState()));
+      this.stateSubscription = timer(
+        GET_STATE_INTERVAL_MS,
+        GET_STATE_INTERVAL_MS
+      )
+        .pipe(exhaustMap(() => this.getState()))
+        .subscribe();
     } else {
       const model = (device || {}).miioModel;
       this.log.error(
@@ -181,9 +196,9 @@ export class DeviceManager {
       );
       this.log.debug(device);
       device.destroy();
+      throw this.communicationError();
     }
   }
-
   private async getState() {
     try {
       await this.ensureDevice("getState");
@@ -194,16 +209,18 @@ export class DeviceManager {
         state,
         this.device.properties
       );
-
       for (const key in state) {
         if (key === "error") {
-          this.internalErrorChanged$.next(state[key]);
+          this.internalErrorChanged$.next(state[key] as ErrorChangedEvent);
         } else {
           this.internalStateChanged$.next({ key, value: state[key] });
         }
       }
     } catch (err) {
-      this.log.error(`getState | %j`, err);
+      if (!this.stopped) {
+        this.releaseDevice();
+        await this.connect().catch(() => {});
+      }
     }
   }
 }

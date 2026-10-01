@@ -18,6 +18,7 @@ export const createDeviceManagerMock = (): DeviceManagerMock => {
     device: miio.device,
     property: jest.fn(),
     ensureDevice: jest.fn(),
+    dispose: jest.fn(),
   };
 
   return deviceManagerMock as DeviceManagerMock;

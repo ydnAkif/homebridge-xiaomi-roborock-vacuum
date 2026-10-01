@@ -112,12 +112,17 @@ export class MainService extends PluginServiceClass {
 
   public async getCleaning() {
     try {
+      await this.deviceManager.ensureDevice("getCleaning");
       const isCleaning = this.deviceManager.isCleaning;
       this.log.info(`getCleaning | Cleaning is ${isCleaning}`);
 
       return isCleaning;
     } catch (err) {
-      this.log.error(`getCleaning | Failed getting the cleaning status.`, err);
+      if (!(err instanceof this.hap.HapStatusError))
+        this.log.error(
+          `getCleaning | Failed getting the cleaning status.`,
+          err
+        );
       throw err;
     }
   }

@@ -4,6 +4,7 @@
  */
 
 module.exports = {
+  testPathIgnorePatterns: ["/node_modules/", "/stability-tests/"],
   // All imported modules in your tests should be mocked automatically
   // automock: false,
 

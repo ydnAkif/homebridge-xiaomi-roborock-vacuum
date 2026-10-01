@@ -108,6 +108,17 @@ describe("BatteryInfo", () => {
       );
     });
 
+    test("logs charging transitions once while still updating HomeKit on every report", () => {
+      const log = (batteryInfo as any).log;
+      const events = deviceManagerMock.stateChanged$ as Subject<unknown>;
+      for (const value of [true, true, false, false, true]) {
+        events.next({ key: "charging", value });
+      }
+      expect(log.info).toHaveBeenCalledTimes(3);
+      expect(updateChargingStateSpy).toHaveBeenCalledTimes(5);
+      expect(updateChargingStateSpy).toHaveBeenLastCalledWith(hap.Characteristic.ChargingState.CHARGING);
+    });
+
     test("does not update anything on unknown event", () => {
       (deviceManagerMock.stateChanged$ as Subject<unknown>).next({
         key: "cleaning",

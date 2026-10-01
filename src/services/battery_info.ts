@@ -50,8 +50,8 @@ export class BatteryInfo extends PluginServiceClass {
 
   private changedCharging(isCharging) {
     const isNewValue = this.isCharging !== isCharging;
+    this.isCharging = isCharging;
     if (isNewValue) {
-      this.log.info(`MON changedCharging | ChargingState is now ${isCharging}`);
       this.log.info(
         `changedCharging | Charging is ${isCharging ? "active" : "cancelled"}`
       );
@@ -68,13 +68,13 @@ export class BatteryInfo extends PluginServiceClass {
 
   private async getBattery() {
     const batteryLevel = await this.deviceManager.device.batteryLevel();
-    this.log.info(`getBattery | BatteryLevel is ${batteryLevel}%`);
+    this.log.debug(`getBattery | BatteryLevel is ${batteryLevel}%`);
     return batteryLevel;
   }
 
   private async getBatteryLow() {
     const batteryLevel = await this.deviceManager.device.batteryLevel();
-    this.log.info(`getBatteryLow | BatteryLevel is ${batteryLevel}%`);
+    this.log.debug(`getBatteryLow | BatteryLevel is ${batteryLevel}%`);
     return batteryLevel < 20
       ? this.hap.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
       : this.hap.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL;
@@ -83,7 +83,7 @@ export class BatteryInfo extends PluginServiceClass {
   private async getCharging() {
     const status = this.deviceManager.state;
     const isCharging = status === "charging";
-    this.log.info(
+    this.log.debug(
       `getCharging | Charging is ${isCharging} (Status is ${status})`
     );
 

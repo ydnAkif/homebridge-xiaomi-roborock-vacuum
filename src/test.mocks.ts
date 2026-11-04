@@ -6,7 +6,7 @@ import {
   HAPStorage,
   HapStatusError,
   HAPStatus,
-} from "hap-nodejs";
+} from "@homebridge/hap-nodejs";
 import { Socket } from "net";
 import { MiioDevice } from "./utils/miio_types";
 

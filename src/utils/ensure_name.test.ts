@@ -1,4 +1,4 @@
-import * as hap from "hap-nodejs";
+import * as hap from "@homebridge/hap-nodejs";
 import { ensureName } from "./ensure_name";
 
 describe("ensureName", () => {

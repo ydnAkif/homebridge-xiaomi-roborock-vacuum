@@ -149,6 +149,12 @@ export class RoomsService extends PluginServiceClass {
   }
 
   private async setCleaningRoom<T>(state: T, roomId: string) {
+    // Cancel a queued selection immediately, even while reconnect is pending.
+    if (!state && !this.roomCleaningStarted) {
+      this.roomIdsToClean.delete(roomId);
+      this.checkRoomTimeout();
+      return;
+    }
     await this.deviceManager.ensureDevice("setCleaning");
 
     try {

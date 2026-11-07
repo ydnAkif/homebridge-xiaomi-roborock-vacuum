@@ -229,4 +229,12 @@ describe("RoomsService", () => {
       jest.useRealTimers();
     }
   });
+  test("deselection does not wait for a pending reconnect", async () => {
+    await createRoomService({});
+    roomsService.roomIdsToClean.add("17");
+    deviceManagerMock.ensureDevice.mockImplementation(() => new Promise(() => {}));
+    await (roomsService as any).setCleaningRoom(false, "17");
+    expect(roomsService.roomIdsToClean.size).toBe(0);
+    expect(deviceManagerMock.ensureDevice).not.toHaveBeenCalled();
+  });
 });

@@ -28,11 +28,11 @@ describe("ensureName", () => {
     expect(setItemSpy).toHaveBeenCalledTimes(0);
   });
 
-  test("does not set the default name", () => {
+  test("restores the saved custom name", () => {
     getItemSpy.mockReturnValueOnce("hi there!");
     const setCharacteristicSpy = jest.spyOn(service, "setCharacteristic");
     ensureName(hap, service, "custom test");
-    expect(setCharacteristicSpy).toHaveBeenCalledTimes(0);
+    expect(setCharacteristicSpy).toHaveBeenCalledWith(hap.Characteristic.ConfiguredName, "hi there!");
     expect(setItemSpy).toHaveBeenCalledTimes(0);
   });
 
@@ -47,7 +47,7 @@ describe("ensureName", () => {
     const setSpy = jest.spyOn(modernService, "setCharacteristic");
     ensureName(modernHap as unknown as typeof hap, modernService, "Modern Room");
     expect(storage.getItemSync).not.toHaveBeenCalled();
-    expect(setSpy).toHaveBeenCalledTimes(cachedName ? 0 : 1);
+    expect(setSpy).toHaveBeenCalledWith(hap.Characteristic.ConfiguredName, cachedName || "Modern Room");
     modernService.updateCharacteristic(hap.Characteristic.ConfiguredName, "New Room");
     expect(storage.setItemSync).toHaveBeenCalledWith("homebridge-xiaomi-roborock-vacuum-configured-name-Modern_Room", "New Room");
   });

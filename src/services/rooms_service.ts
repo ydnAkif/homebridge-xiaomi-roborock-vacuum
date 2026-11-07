@@ -19,6 +19,7 @@ export class RoomsService extends PluginServiceClass {
   public readonly roomIdsToClean = new Set<string>();
   private readonly rooms: Record<string, Room> = {};
   private roomTimeout = setTimeout(() => {}, 0);
+  private roomCleaningStarted = false;
 
   constructor(
     coreContext: CoreContext,
@@ -50,7 +51,17 @@ export class RoomsService extends PluginServiceClass {
       .pipe(filter(({ key }) => key === "cleaning"))
       .subscribe(({ value }) => {
         const isCleaning = value === true;
-        if (!isCleaning) {
+        if (isCleaning && this.roomIdsToClean.size > 0) {
+          this.roomCleaningStarted = true;
+        }
+        // Idle polls during the selection delay must not erase queued rooms.
+        // Pausing also keeps the room selection for a later resume.
+        if (
+          !isCleaning &&
+          this.roomCleaningStarted &&
+          !this.deviceManager.isPaused
+        ) {
+          this.roomCleaningStarted = false;
           this.services.forEach((room) => {
             room
               .getCharacteristic(this.hap.Characteristic.On)
@@ -141,10 +152,15 @@ export class RoomsService extends PluginServiceClass {
       this.log.info(`ACT setCleaningRoom | Start timeout to clean rooms`);
       clearTimeout(this.roomTimeout);
       if (this.roomIdsToClean.size > 0) {
-        this.roomTimeout = setTimeout(
-          () => this.setCleaning(true),
-          this.config.roomTimeout * 1000
-        );
+        this.roomTimeout = setTimeout(() => {
+          if (this.roomIdsToClean.size === 0) return;
+          void this.setCleaning(true).catch((error) =>
+            this.log.error(
+              "Room cleaning failed; no full-clean fallback.",
+              error
+            )
+          );
+        }, this.config.roomTimeout * 1000);
       }
     }
   }

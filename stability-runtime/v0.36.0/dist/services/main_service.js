@@ -93,13 +93,14 @@ class MainService extends plugin_service_class_1.PluginServiceClass {
         }
     }
     async setCleaning(state) {
+        // Capture the user selection before connection refresh emits state events.
+        const roomIdsToClean = Array.from(this.roomsService.roomIdsToClean);
         await this.deviceManager.ensureDevice("setCleaning");
         this.log.info(`ACT setCleaning | Set cleaning to ${state}}`);
         try {
             if (state && !this.deviceManager.isCleaning) {
                 // Start cleaning
-                const roomIdsToClean = this.roomsService.roomIdsToClean;
-                if (roomIdsToClean.size > 0) {
+                if (roomIdsToClean.length > 0) {
                     await this.deviceManager.device.cleanRooms(Array.from(roomIdsToClean));
                     this.log.info(`ACT setCleaning | Start rooms cleaning for rooms ${Array.from(roomIdsToClean)}, device is in state ${this.deviceManager.property("state")}.`);
                 }

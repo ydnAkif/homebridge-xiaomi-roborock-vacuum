@@ -33,7 +33,11 @@ export class RoomsService extends PluginServiceClass {
 
     if (this.config.rooms && !this.config.autoroom) {
       for (const i in this.config.rooms) {
-        this.createRoom(this.config.rooms[i].id, this.config.rooms[i].name);
+        this.createRoom(
+          this.config.rooms[i].id,
+          this.config.rooms[i].name,
+          this.config.rooms[i].serviceId
+        );
       }
     }
 
@@ -87,12 +91,12 @@ export class RoomsService extends PluginServiceClass {
     return [...Object.values(this.rooms)];
   }
 
-  private createRoom(roomId: string, roomName: string) {
+  private createRoom(roomId: string, roomName: string, serviceId = roomId) {
     this.log.info(`INF createRoom | Room ${roomName} (${roomId})`);
 
     const switchName = `${this.config.cleanword} ${roomName}`;
     const room = Object.assign(
-      new this.hap.Service.Switch(switchName, "roomService" + roomId),
+      new this.hap.Service.Switch(switchName, "roomService" + serviceId),
       { roomId }
     );
 

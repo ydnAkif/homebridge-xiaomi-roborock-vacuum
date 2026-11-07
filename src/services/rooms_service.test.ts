@@ -63,6 +63,18 @@ describe("RoomsService", () => {
     expect(roomsService.services).toHaveLength(1);
   });
 
+  test("correcting a map room ID preserves the existing HomeKit service identity", async () => {
+    await createRoomService({
+      rooms: [{ id: 16, name: "Aylin's Bedroom", serviceId: 20 }],
+    });
+    const room = roomsService.services[0] as any;
+    expect(room.subtype).toBe("roomService20");
+    expect(room.roomId).toBe(16);
+    Object.assign(deviceManagerMock, { isCleaning: false });
+    await (roomsService as any).setCleaningRoom(true, room.roomId);
+    expect([...roomsService.roomIdsToClean]).toEqual([16]);
+  });
+
   test("idle status polls preserve queued rooms until the delayed start", async () => {
     jest.useFakeTimers();
     setCleaning.mockResolvedValue(undefined);

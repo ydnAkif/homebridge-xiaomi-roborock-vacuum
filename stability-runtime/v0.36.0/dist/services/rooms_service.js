@@ -19,7 +19,7 @@ class RoomsService extends plugin_service_class_1.PluginServiceClass {
         }
         if (this.config.rooms && !this.config.autoroom) {
             for (const i in this.config.rooms) {
-                this.createRoom(this.config.rooms[i].id, this.config.rooms[i].name);
+                this.createRoom(this.config.rooms[i].id, this.config.rooms[i].name, this.config.rooms[i].serviceId);
             }
         }
         // Declare services for rooms in advance, so HomeKit can create the switches
@@ -66,10 +66,10 @@ class RoomsService extends plugin_service_class_1.PluginServiceClass {
     get services() {
         return [...Object.values(this.rooms)];
     }
-    createRoom(roomId, roomName) {
+    createRoom(roomId, roomName, serviceId = roomId) {
         this.log.info(`INF createRoom | Room ${roomName} (${roomId})`);
         const switchName = `${this.config.cleanword} ${roomName}`;
-        const room = Object.assign(new this.hap.Service.Switch(switchName, "roomService" + roomId), { roomId });
+        const room = Object.assign(new this.hap.Service.Switch(switchName, "roomService" + serviceId), { roomId });
         (0, ensure_name_1.ensureName)(this.hap, room, switchName);
         room
             .getCharacteristic(this.hap.Characteristic.On)

@@ -160,6 +160,11 @@
             "id": {
               "name": "Room ID",
               "type": "integer"
+            },
+            "serviceId": {
+              "title": "Stable HomeKit service ID",
+              "type": "integer",
+              "description": "Keep this unchanged when correcting the robot map room ID."
             }
           }
         }

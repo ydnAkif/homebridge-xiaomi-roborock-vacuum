@@ -96,6 +96,7 @@ describe("RoomsService", () => {
         key: "cleaning",
         value: true,
       });
+      Object.assign(deviceManagerMock, { state: "charging" });
       (deviceManagerMock.stateChanged$ as Subject<any>).next({
         key: "cleaning",
         value: false,
@@ -137,7 +138,95 @@ describe("RoomsService", () => {
       log: getLoggerMock(),
     });
     await main.setCleaning(true);
-    expect(deviceManagerMock.device.cleanRooms).toHaveBeenCalledWith(["17"]);
+    expect(deviceManagerMock.device.cleanRooms).not.toHaveBeenCalled();
     expect(deviceManagerMock.device.activateCleaning).not.toHaveBeenCalled();
+  });
+  test("duplicate room service ids and names are skipped before HAP registration", async () => {
+    await createRoomService({
+      rooms: [
+        { id: 16, name: "One", serviceId: 20 },
+        { id: 17, name: "Two", serviceId: 20 },
+        { id: 18, name: "One", serviceId: 18 },
+      ],
+    });
+    expect(roomsService.services).toHaveLength(1);
+  });
+  test("failed delayed cleaning clears selected rooms without full-house fallback", async () => {
+    jest.useFakeTimers();
+    try {
+      setCleaning.mockRejectedValue(new Error("offline"));
+      await createRoomService({
+        rooms: [{ id: 17, name: "One" }],
+        roomTimeout: 1,
+      });
+      Object.assign(deviceManagerMock, { isCleaning: false });
+      await (roomsService as any).setCleaningRoom(true, "17");
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(roomsService.roomIdsToClean.size).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  test("returning, docking and temporary unknown states retain an active room session", async () => {
+    await createRoomService({ rooms: [{ id: 17, name: "One" }] });
+    roomsService.roomIdsToClean.add("17");
+    (deviceManagerMock.stateChanged$ as Subject<any>).next({
+      key: "cleaning",
+      value: true,
+    });
+    for (const state of [
+      "returning",
+      "docking",
+      "unknown-26",
+      "dust-collection",
+    ]) {
+      Object.assign(deviceManagerMock, { state });
+      (deviceManagerMock.stateChanged$ as Subject<any>).next({
+        key: "cleaning",
+        value: false,
+      });
+      expect(roomsService.roomIdsToClean.size).toBe(1);
+    }
+    Object.assign(deviceManagerMock, { state: "charging" });
+    (deviceManagerMock.stateChanged$ as Subject<any>).next({
+      key: "cleaning",
+      value: false,
+    });
+    expect(roomsService.roomIdsToClean.size).toBe(0);
+  });
+  test("concurrent main starts coalesce and cancel the delayed room start", async () => {
+    jest.useFakeTimers();
+    try {
+      await createRoomService({
+        rooms: [{ id: 17, name: "One" }],
+        roomTimeout: 30,
+      });
+      Object.assign(deviceManagerMock, { isCleaning: false });
+      await (roomsService as any).setCleaningRoom(true, "17");
+      const main = Object.assign(Object.create(MainService.prototype), {
+        deviceManager: deviceManagerMock,
+        roomsService,
+        log: getLoggerMock(),
+      });
+      await Promise.all([main.setCleaning(true), main.setCleaning(true)]);
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(deviceManagerMock.device.cleanRooms).toHaveBeenCalledTimes(1);
+      expect(setCleaning).not.toHaveBeenCalled();
+      roomsService.clearSelection();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  test("accepted command expires if robot never reports cleaning", async () => {
+    jest.useFakeTimers();
+    try {
+      await createRoomService({});
+      roomsService.roomIdsToClean.add("17");
+      roomsService.commandAccepted();
+      await jest.advanceTimersByTimeAsync(300000);
+      expect(roomsService.roomIdsToClean.size).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

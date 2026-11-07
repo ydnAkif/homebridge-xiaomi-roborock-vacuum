@@ -127,18 +127,38 @@ export class MainService extends PluginServiceClass {
     }
   }
 
+  private cleaningCommand?: Promise<void>;
+
   public async setCleaning(state) {
-    // Capture the user selection before connection refresh emits state events.
-    const roomIdsToClean = Array.from(this.roomsService.roomIdsToClean);
-    await this.deviceManager.ensureDevice("setCleaning");
-    this.log.info(`ACT setCleaning | Set cleaning to ${state}}`);
+    if (this.cleaningCommand) {
+      await this.cleaningCommand;
+      // Coalesce concurrent starts, but allow an explicit stop afterwards.
+      if (state) return;
+    }
+    const command = this.performCleaning(state);
+    this.cleaningCommand = command;
     try {
+      await command;
+    } finally {
+      if (this.cleaningCommand === command) this.cleaningCommand = undefined;
+    }
+  }
+
+  private async performCleaning(state) {
+    const hadRooms = this.roomsService.roomIdsToClean.size > 0;
+    this.roomsService.cancelPendingStart();
+    try {
+      await this.deviceManager.ensureDevice("setCleaning");
+      const roomIdsToClean = Array.from(this.roomsService.roomIdsToClean);
+      if (state && hadRooms && roomIdsToClean.length === 0) return;
+
       if (state && !this.deviceManager.isCleaning) {
         // Start cleaning
         if (roomIdsToClean.length > 0) {
           await this.deviceManager.device.cleanRooms(
             Array.from(roomIdsToClean)
           );
+          this.roomsService.commandAccepted();
           this.log.info(
             `ACT setCleaning | Start rooms cleaning for rooms ${Array.from(
               roomIdsToClean
@@ -165,6 +185,7 @@ export class MainService extends PluginServiceClass {
         await this.deviceManager.device.activateCharging();
       }
     } catch (err) {
+      if (hadRooms) this.roomsService.clearSelection();
       this.log.error(`setCleaning | Failed to set cleaning to ${state}`, err);
       throw err;
     }

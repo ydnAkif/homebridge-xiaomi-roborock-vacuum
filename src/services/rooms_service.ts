@@ -20,6 +20,31 @@ export class RoomsService extends PluginServiceClass {
   private readonly rooms: Record<string, Room> = {};
   private roomTimeout = setTimeout(() => {}, 0);
   private roomCleaningStarted = false;
+  private readonly roomSubtypes = new Set<string>();
+  private selectionExpiry?: ReturnType<typeof setTimeout>;
+
+  public cancelPendingStart() {
+    clearTimeout(this.roomTimeout);
+  }
+  public clearSelection() {
+    this.cancelPendingStart();
+    clearTimeout(this.selectionExpiry);
+    this.roomCleaningStarted = false;
+    this.roomIdsToClean.clear();
+    this.services.forEach((room) =>
+      room.getCharacteristic(this.hap.Characteristic.On).updateValue(false)
+    );
+  }
+  public commandAccepted() {
+    clearTimeout(this.selectionExpiry);
+    this.selectionExpiry = setTimeout(
+      () => {
+        if (!this.roomCleaningStarted) this.clearSelection();
+      },
+      5 * 60 * 1000
+    );
+    this.selectionExpiry.unref?.();
+  }
 
   constructor(
     coreContext: CoreContext,
@@ -57,21 +82,17 @@ export class RoomsService extends PluginServiceClass {
         const isCleaning = value === true;
         if (isCleaning && this.roomIdsToClean.size > 0) {
           this.roomCleaningStarted = true;
+          clearTimeout(this.selectionExpiry);
         }
         // Idle polls during the selection delay must not erase queued rooms.
         // Pausing also keeps the room selection for a later resume.
         if (
           !isCleaning &&
           this.roomCleaningStarted &&
-          !this.deviceManager.isPaused
+          !this.deviceManager.isPaused &&
+          ["charging", "waiting", "idle"].includes(this.deviceManager.state)
         ) {
-          this.roomCleaningStarted = false;
-          this.services.forEach((room) => {
-            room
-              .getCharacteristic(this.hap.Characteristic.On)
-              .updateValue(false);
-          });
-          this.roomIdsToClean.clear();
+          this.clearSelection();
         }
       });
 
@@ -92,11 +113,23 @@ export class RoomsService extends PluginServiceClass {
   }
 
   private createRoom(roomId: string, roomName: string, serviceId = roomId) {
+    const subtype = "roomService" + serviceId;
+    if (
+      roomId === undefined ||
+      !roomName ||
+      serviceId === undefined ||
+      this.rooms[roomName] ||
+      this.roomSubtypes.has(subtype)
+    ) {
+      this.log.error(`Skipping invalid or duplicate room: ${roomName}`);
+      return;
+    }
+    this.roomSubtypes.add(subtype);
     this.log.info(`INF createRoom | Room ${roomName} (${roomId})`);
 
     const switchName = `${this.config.cleanword} ${roomName}`;
     const room = Object.assign(
-      new this.hap.Service.Switch(switchName, "roomService" + serviceId),
+      new this.hap.Service.Switch(switchName, subtype),
       { roomId }
     );
 
@@ -130,6 +163,7 @@ export class RoomsService extends PluginServiceClass {
         // Delete then add, to maintain the correct order.
         this.roomIdsToClean.delete(roomId);
         this.roomIdsToClean.add(roomId);
+        this.commandAccepted();
         this.checkRoomTimeout();
       } else if (
         !state &&
@@ -158,12 +192,13 @@ export class RoomsService extends PluginServiceClass {
       if (this.roomIdsToClean.size > 0) {
         this.roomTimeout = setTimeout(() => {
           if (this.roomIdsToClean.size === 0) return;
-          void this.setCleaning(true).catch((error) =>
+          void this.setCleaning(true).catch((error) => {
+            this.clearSelection();
             this.log.error(
-              "Room cleaning failed; no full-clean fallback.",
+              "Room cleaning failed; selection cleared, no full-clean fallback.",
               error
-            )
-          );
+            );
+          });
         }, this.config.roomTimeout * 1000);
       }
     }

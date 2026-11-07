@@ -78,6 +78,7 @@ export class XiaomiRoborockVacuum implements AccessoryPlugin {
       deviceManager: this.deviceManager,
     };
     this.pluginServices = this.initializeServices(coreContext);
+    api.on("shutdown", () => this.pluginServices.rooms.clearSelection());
 
     // Run the init method of all the services, once they are all registered.
     Object.values(this.pluginServices).map((service) => service?.init());

@@ -91,6 +91,7 @@ const Service = Object.assign(createServiceMock(), {
 export const createHomebridgeMock = () =>
   ({
     registerAccessory: jest.fn(),
+    on: jest.fn(),
     hap: {
       Characteristic,
       Service,

@@ -9,3 +9,7 @@ Run `npm ci`, `npm run build`, `npm test -- --runInBand` and `node --test stabil
 ## 2026-11-04 update
 
 Merged official v0.36.0, retaining shared discovery, reconnect backoff, shutdown cleanup, Homebridge 2 storage compatibility, and charging log deduplication. Version 0.36.1-ydnakif.1 is based on official 0.36.0. Polling begins after 30 seconds to avoid extra work during startup.
+
+## 2026-11-07 audit fixes
+
+Duplicate room names/subtypes are rejected before HAP registration; serviceId is declared in the UI schema. Failed room starts clear the selection. A command that never reaches a cleaning state expires after five minutes. Returning/docking/temporary unknown states preserve active room sessions until a terminal idle/charging state. Concurrent starts coalesce, cancel the selection timer, and honor deselection during reconnect without falling back to whole-house cleaning. Shutdown clears room timers. Map IDs and stable serviceIds are unchanged. Source installs build through prepare.

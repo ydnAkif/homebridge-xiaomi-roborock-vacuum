@@ -35,7 +35,7 @@ export class DustCollection extends PluginServiceClass {
 
     try {
       const isDustCollecting = this.isDustCollecting;
-      this.log.info(
+      this.log.debug(
         `getDustCollectionState | Dust collection is ${isDustCollecting}`
       );
       return isDustCollecting;

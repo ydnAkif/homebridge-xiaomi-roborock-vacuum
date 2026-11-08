@@ -114,7 +114,7 @@ export class MainService extends PluginServiceClass {
     try {
       await this.deviceManager.ensureDevice("getCleaning");
       const isCleaning = this.deviceManager.isCleaning;
-      this.log.info(`getCleaning | Cleaning is ${isCleaning}`);
+      this.log.debug(`getCleaning | Cleaning is ${isCleaning}`);
 
       return isCleaning;
     } catch (err) {
@@ -195,13 +195,13 @@ export class MainService extends PluginServiceClass {
     await this.deviceManager.ensureDevice("getSpeed");
 
     const speed = await this.deviceManager.device.fanSpeed();
-    this.log.info(
+    this.log.debug(
       `getSpeed | Fanspeed is ${speed} over miIO. Converting to HomeKit`
     );
 
     const { homekitTopLevel, name } = this.findSpeedModeFromMiio(speed) || {};
 
-    this.log.info(
+    this.log.debug(
       `getSpeed | FanSpeed is ${speed} over miIO "${name}" > HomeKit speed ${homekitTopLevel}%`
     );
 

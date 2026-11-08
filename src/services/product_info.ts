@@ -65,7 +65,7 @@ export class ProductInfo extends PluginServiceClass {
 
     try {
       const firmware = await this.deviceManager.device.getDeviceInfo();
-      this.log.info(`getFirmware | FirmwareVersion is ${firmware.fw_ver}`);
+      this.log.debug(`getFirmware | FirmwareVersion is ${firmware.fw_ver}`);
 
       this.firmware = firmware.fw_ver;
 
@@ -81,7 +81,7 @@ export class ProductInfo extends PluginServiceClass {
 
     try {
       const serialNumber = await this.deviceManager.device.getSerialNumber();
-      this.log.info(`getSerialNumber | Serial Number is ${serialNumber}`);
+      this.log.debug(`getSerialNumber | Serial Number is ${serialNumber}`);
 
       return `${serialNumber}`;
     } catch (err) {

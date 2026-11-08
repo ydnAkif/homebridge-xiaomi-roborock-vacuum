@@ -1,0 +1,140 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.WaterBoxService = void 0;
+const rxjs_1 = require("rxjs");
+const find_speed_modes_1 = require("../utils/find_speed_modes");
+const plugin_service_class_1 = require("./plugin_service_class");
+const ensure_name_1 = require("../utils/ensure_name");
+class WaterBoxService extends plugin_service_class_1.PluginServiceClass {
+    productInfo;
+    mainService;
+    service;
+    constructor(coreContext, productInfo, mainService) {
+        super(coreContext);
+        this.productInfo = productInfo;
+        this.mainService = mainService;
+        const name = `${this.config.name} Water Box`;
+        this.service = new this.hap.Service.Fan(name, "Water Box");
+        (0, ensure_name_1.ensureName)(this.hap, this.service, name);
+        this.service
+            .getCharacteristic(this.hap.Characteristic.RotationSpeed)
+            .onGet(() => this.getWaterSpeed())
+            .onSet((newState) => this.setWaterSpeed(newState));
+        // We need to handle the ON/OFF characteristic (https://github.com/homebridge-xiaomi-roborock-vacuum/homebridge-xiaomi-roborock-vacuum/issues/284)
+        this.service
+            .getCharacteristic(this.hap.Characteristic.On)
+            .onGet(async () => (await this.getWaterSpeed()) > 0)
+            .onSet(async (newState) => {
+            // Set to 0% (Off) when receiving an OFF request, do nothing otherwise.
+            if (!newState) {
+                await this.setWaterSpeed(0);
+            }
+        });
+    }
+    async init() {
+        this.deviceManager.stateChanged$
+            .pipe((0, rxjs_1.filter)(({ key }) => key === "cleaning"), (0, rxjs_1.distinct)(({ value }) => value))
+            .subscribe(({ value: isCleaning }) => {
+            this.service
+                .getCharacteristic(this.hap.Characteristic.On)
+                .updateValue(isCleaning);
+        });
+        this.deviceManager.stateChanged$
+            .pipe((0, rxjs_1.filter)(({ key }) => key === "water_box_mode"), (0, rxjs_1.distinct)(({ value }) => value))
+            .subscribe(({ value: speed }) => {
+            this.log.info(`MON changedWaterSpeed | WaterBoxMode is now ${speed}%`);
+            const speedMode = this.findWaterSpeedModeFromMiio(speed);
+            if (typeof speedMode === "undefined") {
+                this.log.warn(`WAR changedWaterSpeed | Speed was changed to ${speed}%, this speed is not supported`);
+            }
+            else {
+                const { homekitTopLevel, name } = speedMode;
+                this.log.info(`changedWaterSpeed | Speed was changed to ${speed}% (${name}), for HomeKit ${homekitTopLevel}%`);
+                this.service
+                    .getCharacteristic(this.hap.Characteristic.RotationSpeed)
+                    .updateValue(homekitTopLevel);
+                this.service
+                    .getCharacteristic(this.hap.Characteristic.On)
+                    .updateValue(homekitTopLevel > 0);
+            }
+        });
+    }
+    get services() {
+        return [this.service];
+    }
+    async setWaterSpeed(speed) {
+        await this.deviceManager.ensureDevice("setWaterSpeed");
+        if (typeof speed === "number") {
+            this.log.debug(`ACT setWaterSpeed | Speed got ${speed}% over HomeKit > CLEANUP.`);
+        }
+        // Get the speed modes for this model
+        const speedModes = (0, find_speed_modes_1.findSpeedModes)(this.deviceManager.model, this.productInfo.firmware)
+            .waterspeed || [];
+        // If the robot does not support water-mode cleaning
+        if (speedModes.length === 0) {
+            this.log.info(`setWaterSpeed | Model does not support the water mode`);
+            return;
+        }
+        let miLevel = null;
+        let name = null;
+        if (typeof speed === "number") {
+            // Speed set by number
+            // gen1 has maximum of 91%, so anything over that won't work. Getting safety maximum.
+            const safeSpeed = Math.min(speed, speedModes[speedModes.length - 1].homekitTopLevel);
+            // Find the minimum homekitTopLevel that matches the desired speed
+            const speedMode = speedModes.find((mode) => safeSpeed <= mode.homekitTopLevel);
+            miLevel = speedMode.miLevel;
+            name = speedMode.name;
+        }
+        else {
+            // Set by mode name
+            const speedMode = speedModes.find((mode) => mode.name === speed);
+            if (speedMode == null) {
+                this.log.info(`setWaterSpeed | Mode "${speed}" does not exist.`);
+                return;
+            }
+            miLevel = speedMode.miLevel;
+            name = speedMode.name;
+        }
+        this.log.info(`ACT setWaterSpeed | WaterBoxMode set to ${miLevel} over miIO for "${name}".`);
+        // Save the latest set speed for handling the "custom" speed later
+        this.mainService.cachedState.set("WaterSpeed", miLevel);
+        this.mainService.cachedState.set("WaterSpeedName", name);
+        await this.deviceManager.device.setWaterBoxMode(miLevel);
+        // If speed is "custom", also set the water speed to "custom" (for Xiaomi App)
+        if (name === "Custom" &&
+            this.mainService.cachedState.get("FanSpeedName") !== "Custom") {
+            await this.mainService.setSpeed("Custom");
+        }
+        // If speed is not "custom" remove set the water speed also to a fixed value (for Xiaomi App)
+        else if (name !== "Custom" &&
+            this.mainService.cachedState.get("FanSpeedName") === "Custom") {
+            await this.mainService.setSpeed("Balanced");
+        }
+    }
+    async getWaterSpeed() {
+        await this.deviceManager.ensureDevice("getWaterSpeed");
+        const speed = await this.deviceManager.device.getWaterBoxMode();
+        this.log.debug(`getWaterSpeed | WaterBoxMode is ${speed} over miIO. Converting to HomeKit`);
+        const waterSpeed = this.findWaterSpeedModeFromMiio(speed);
+        let homekitValue = 0;
+        if (waterSpeed) {
+            const { homekitTopLevel, name } = waterSpeed;
+            this.log.debug(`getWaterSpeed | WaterBoxMode is ${speed} over miIO "${name}" > HomeKit speed ${homekitTopLevel}%`);
+            homekitValue = homekitTopLevel || 0;
+        }
+        this.service
+            .getCharacteristic(this.hap.Characteristic.On)
+            .updateValue(homekitValue > 0);
+        return homekitValue;
+    }
+    findWaterSpeedModeFromMiio(speed) {
+        // Get the speed modes for this model
+        const speedModes = (0, find_speed_modes_1.findSpeedModes)(this.deviceManager.model, this.productInfo.firmware)
+            .waterspeed || [];
+        // Find speed mode that matches the miLevel
+        return speedModes.find((mode) => mode.miLevel === speed);
+    }
+}
+exports.WaterBoxService = WaterBoxService;
+//# sourceMappingURL=water_box_service.js.map
